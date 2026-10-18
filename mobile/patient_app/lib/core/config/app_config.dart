@@ -18,4 +18,13 @@ class AppConfig {
     }
     return 'http://10.0.2.2:8000/api/v1';
   }
+
+  /// Default patient ID used for location reporting and settings retrieval.
+  static String get patientId {
+    const fromEnv = String.fromEnvironment('PATIENT_ID');
+    if (fromEnv.isNotEmpty) {
+      return fromEnv;
+    }
+    return '22222222-2222-2222-2222-222222222222';
+  }
 }

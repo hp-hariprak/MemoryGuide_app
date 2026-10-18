@@ -84,11 +84,15 @@ class ApiClient {
     );
   }
 
-  Future<dynamic> get(String path, {Map<String, dynamic>? queryParams}) async {
+  Future<dynamic> get(
+    String path, {
+    Map<String, dynamic>? queryParams,
+    Map<String, String>? headers,
+  }) async {
     final uri = _buildUri(path, queryParams);
     try {
       final response = await client
-          .get(uri, headers: _buildHeaders())
+          .get(uri, headers: _buildHeaders(headers))
           .timeout(const Duration(seconds: 15));
       return _handleResponse(response);
     } on ApiException {
@@ -102,13 +106,17 @@ class ApiClient {
     }
   }
 
-  Future<dynamic> post(String path, dynamic body) async {
+  Future<dynamic> post(
+    String path,
+    dynamic body, {
+    Map<String, String>? headers,
+  }) async {
     final uri = _buildUri(path);
     try {
       final response = await client
           .post(
             uri,
-            headers: _buildHeaders(),
+            headers: _buildHeaders(headers),
             body: jsonEncode(body ?? {}),
           )
           .timeout(const Duration(seconds: 15));
@@ -124,13 +132,17 @@ class ApiClient {
     }
   }
 
-  Future<dynamic> put(String path, dynamic body) async {
+  Future<dynamic> put(
+    String path,
+    dynamic body, {
+    Map<String, String>? headers,
+  }) async {
     final uri = _buildUri(path);
     try {
       final response = await client
           .put(
             uri,
-            headers: _buildHeaders(),
+            headers: _buildHeaders(headers),
             body: jsonEncode(body ?? {}),
           )
           .timeout(const Duration(seconds: 15));
