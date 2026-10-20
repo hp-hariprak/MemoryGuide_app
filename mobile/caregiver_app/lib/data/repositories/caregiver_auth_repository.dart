@@ -47,6 +47,9 @@ class CaregiverAuthRepository {
     _cachedToken = token;
     _currentUser = user;
     await localDataSource.saveSession(token: token, user: user);
+    try {
+      CaregiverServiceLocator.instance.pushNotificationService.registerToken();
+    } catch (_) {}
     return user;
   }
 
@@ -79,6 +82,9 @@ class CaregiverAuthRepository {
     _cachedToken = token;
     _currentUser = user;
     await localDataSource.saveSession(token: token, user: user);
+    try {
+      CaregiverServiceLocator.instance.pushNotificationService.registerToken();
+    } catch (_) {}
     return user;
   }
 
@@ -106,6 +112,9 @@ class CaregiverAuthRepository {
       _cachedToken = savedToken;
       _currentUser = savedUser;
       try {
+        CaregiverServiceLocator.instance.pushNotificationService.registerToken();
+      } catch (_) {}
+      try {
         final fresh = await apiClient.get('/auth/me');
         if (fresh is Map<String, dynamic>) {
           final refreshed = CaregiverUser.fromJson(fresh);
@@ -122,6 +131,9 @@ class CaregiverAuthRepository {
   }
 
   Future<void> logout() async {
+    try {
+      await CaregiverServiceLocator.instance.pushNotificationService.unregisterToken();
+    } catch (_) {}
     _cachedToken = null;
     _currentUser = null;
     await localDataSource.clearSession();

@@ -2,6 +2,7 @@ import '../network/api_client.dart';
 import '../../data/datasources/auth_local_datasource.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/patient_repository.dart';
+import 'push_notification_service.dart';
 
 class PatientAppServices {
   static final PatientAppServices instance = PatientAppServices._();
@@ -18,5 +19,9 @@ class PatientAppServices {
   late final PatientRepository patientRepository = PatientRepository(
     apiClient: apiClient,
     authRepository: authRepository,
+  );
+  late final PushNotificationService pushNotificationService = PushNotificationService(
+    messaging: FirebaseMessagingGateway(),
+    apiClient: apiClient,
   );
 }

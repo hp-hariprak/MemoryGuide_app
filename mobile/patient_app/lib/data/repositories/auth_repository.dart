@@ -47,6 +47,9 @@ class AuthRepository {
     _cachedToken = token;
     _currentUser = user;
     await localDataSource.saveSession(token: token, user: user);
+    try {
+      PatientAppServices.instance.pushNotificationService.registerToken();
+    } catch (_) {}
     return user;
   }
 
@@ -79,6 +82,9 @@ class AuthRepository {
     _cachedToken = token;
     _currentUser = user;
     await localDataSource.saveSession(token: token, user: user);
+    try {
+      PatientAppServices.instance.pushNotificationService.registerToken();
+    } catch (_) {}
     return user;
   }
 
@@ -105,6 +111,9 @@ class AuthRepository {
     if (savedToken != null && savedUser != null && savedUser.role == 'patient') {
       _cachedToken = savedToken;
       _currentUser = savedUser;
+      try {
+        PatientAppServices.instance.pushNotificationService.registerToken();
+      } catch (_) {}
       // Refresh user profile in background
       try {
         final fresh = await apiClient.get('/auth/me');
@@ -123,6 +132,9 @@ class AuthRepository {
   }
 
   Future<void> logout() async {
+    try {
+      await PatientAppServices.instance.pushNotificationService.unregisterToken();
+    } catch (_) {}
     _cachedToken = null;
     _currentUser = null;
     await localDataSource.clearSession();

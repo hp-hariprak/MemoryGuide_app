@@ -2,6 +2,7 @@ import '../network/api_client.dart';
 import '../../data/datasources/caregiver_local_datasource.dart';
 import '../../data/repositories/caregiver_auth_repository.dart';
 import '../../data/repositories/caregiver_repository.dart';
+import 'push_notification_service.dart';
 
 class CaregiverServiceLocator {
   static final CaregiverServiceLocator instance = CaregiverServiceLocator._();
@@ -16,4 +17,8 @@ class CaregiverServiceLocator {
     localDataSource: localDataSource,
   );
   late final CaregiverRepository caregiverRepository = CaregiverRepository(apiClient);
+  late final PushNotificationService pushNotificationService = PushNotificationService(
+    messaging: FirebaseMessagingGateway(),
+    apiClient: apiClient,
+  );
 }

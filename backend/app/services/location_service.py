@@ -12,6 +12,7 @@ from app.models.user import User, UserRole
 from app.repositories.alert_repository import AlertRepository
 from app.repositories.location_repository import LocationRepository
 from app.repositories.settings_repository import SettingsRepository
+from app.repositories.user_repository import UserRepository
 from app.schemas.common import PaginatedData, PaginationMeta
 from app.schemas.location import (
     LatestLocationData,
@@ -20,15 +21,18 @@ from app.schemas.location import (
     PatientStatusData,
 )
 from app.services.geofence_service import GeofenceService
+from app.services.notification_service import NotificationService
 from app.utils.time import ensure_utc, utcnow
 
 
 class LocationService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, notifications: NotificationService | None = None) -> None:
         self.db = db
         self.locations = LocationRepository(db)
         self.settings = SettingsRepository(db)
         self.alerts = AlertRepository(db)
+        self.users = UserRepository(db)
+        self.notifications = notifications or NotificationService(db)
 
     def record(self, actor: User, patient_id: UUID, payload: LocationCreate) -> LocationData:
         require_patient_access(self.db, actor, patient_id)
@@ -46,9 +50,22 @@ class LocationService:
             recorded_at=recorded_at,
         )
         self.locations.add(location)
-        self._maybe_geofence_alert(patient_id, payload.latitude, payload.longitude)
+        created_exit_alert = self._maybe_geofence_alert(patient_id, payload.latitude, payload.longitude)
         self.db.commit()
         self.db.refresh(location)
+
+        if created_exit_alert is not None:
+            try:
+                self.db.refresh(created_exit_alert)
+                patient = self.users.get_by_id(patient_id)
+                patient_name = patient.full_name if patient else "Patient"
+                notify = self.notifications.notify_geofence_exit(created_exit_alert, patient_name)
+                created_exit_alert.notification_status = notify.status
+                self.db.commit()
+            except Exception:
+                # Notification failures must never prevent location ingestion from succeeding
+                pass
+
         return LocationData.model_validate(location)
 
     def status(self, actor: User, patient_id: UUID) -> PatientStatusData:
@@ -102,30 +119,30 @@ class LocationService:
             ),
         )
 
-    def _maybe_geofence_alert(self, patient_id: UUID, latitude: float, longitude: float) -> None:
+    def _maybe_geofence_alert(self, patient_id: UUID, latitude: float, longitude: float) -> SafetyEvent | None:
         settings = self.settings.get(patient_id)
         if settings is None or not settings.geofence_alerts_enabled:
-            return
+            return None
         inside = GeofenceService.inside_safe_zone(settings, latitude, longitude)
         if inside is None:
-            return
+            return None
         alert_type = AlertType.GEOFENCE_ENTER if inside else AlertType.GEOFENCE_EXIT
         existing = self.alerts.latest_open_of_type(patient_id, alert_type)
         if existing is not None:
-            return
+            return None
         opposite = AlertType.GEOFENCE_EXIT if inside else AlertType.GEOFENCE_ENTER
         open_opposite = self.alerts.latest_open_of_type(patient_id, opposite)
         if open_opposite is not None:
             open_opposite.status = AlertStatus.RESOLVED
             open_opposite.resolved_at = utcnow()
-        self.alerts.add(
-            SafetyEvent(
-                patient_id=patient_id,
-                alert_type=alert_type,
-                status=AlertStatus.OPEN,
-                latitude=latitude,
-                longitude=longitude,
-                notification_status="skipped",
-                message="Patient entered the safe zone" if inside else "Patient left the safe zone",
-            )
+        event = SafetyEvent(
+            patient_id=patient_id,
+            alert_type=alert_type,
+            status=AlertStatus.OPEN,
+            latitude=latitude,
+            longitude=longitude,
+            notification_status="pending" if alert_type == AlertType.GEOFENCE_EXIT else "skipped",
+            message="Patient entered the safe zone" if inside else "Patient left the safe zone",
         )
+        self.alerts.add(event)
+        return event if alert_type == AlertType.GEOFENCE_EXIT else None

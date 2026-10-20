@@ -9,6 +9,10 @@ __pycache__/
 memoryguide_dev.db
 .DS_Store
 firebase-service-account.json
+*firebase*.json
+*service-account*.json
+google-services.json
+**/google-services.json
 *.iml
 .idea/
 .vscode/

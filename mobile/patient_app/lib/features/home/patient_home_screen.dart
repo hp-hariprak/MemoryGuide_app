@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../../core/errors/failures.dart';
 import '../../core/services/service_locator.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/liquid_glass.dart';
@@ -450,12 +451,20 @@ class _PatientHomeScreenState extends State<PatientHomeScreen> {
                                       position = await LocationHelper
                                           .getCurrentPosition();
                                     } catch (_) {}
-                                    await PatientAppServices
-                                        .instance.patientRepository
-                                        .triggerHelp(
-                                      latitude: position?.latitude,
-                                      longitude: position?.longitude,
-                                    );
+                                    try {
+                                      await PatientAppServices
+                                          .instance.patientRepository
+                                          .triggerHelp(
+                                        latitude: position?.latitude,
+                                        longitude: position?.longitude,
+                                      );
+                                    } on ApiException catch (e) {
+                                      if (e.code == 'DUPLICATE_HELP_REQUEST') {
+                                        // An alert is already open on the server; treat as dispatched
+                                        return;
+                                      }
+                                      rethrow;
+                                    }
                                   }
                                 },
                               ),

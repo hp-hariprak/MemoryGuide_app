@@ -5,8 +5,11 @@ import 'core/services/caregiver_service_locator.dart';
 import 'data/models/caregiver_models.dart';
 import 'features/authentication/caregiver_login_screen.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await CaregiverServiceLocator.instance.pushNotificationService.init();
+  } catch (_) {}
   runApp(const MemoryGuideApp());
 }
 

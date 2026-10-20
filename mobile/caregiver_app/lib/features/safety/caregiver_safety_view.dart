@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/services/caregiver_service_locator.dart';
+import '../../core/services/push_notification_service.dart';
 import '../../data/models/caregiver_models.dart';
 
 const _forest = Color(0xFF174D43);
@@ -19,7 +21,8 @@ class CaregiverSafetySection extends StatefulWidget {
   State<CaregiverSafetySection> createState() => _CaregiverSafetySectionState();
 }
 
-class _CaregiverSafetySectionState extends State<CaregiverSafetySection> {
+class _CaregiverSafetySectionState extends State<CaregiverSafetySection>
+    with WidgetsBindingObserver {
   List<LinkedPatient> _patients = [];
   LinkedPatient? _selectedPatient;
   PatientStatus? _patientStatus;
@@ -29,10 +32,133 @@ class _CaregiverSafetySectionState extends State<CaregiverSafetySection> {
   bool _isLoading = true;
   String? _errorMessage;
 
+  Timer? _pollingTimer;
+  StreamSubscription<PushEvent>? _pushSub;
+  bool _isRefreshing = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadData();
+    _startPolling();
+    _subscribeToPushEvents();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _pollingTimer?.cancel();
+    _pushSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startPolling();
+      refreshAlerts(silent: true);
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _pollingTimer?.cancel();
+    }
+  }
+
+  void _startPolling() {
+    _pollingTimer?.cancel();
+    _pollingTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (mounted && _selectedPatient != null) {
+        refreshAlerts(silent: true);
+      }
+    });
+  }
+
+  void _subscribeToPushEvents() {
+    _pushSub = CaregiverServiceLocator.instance.pushNotificationService.events
+        .listen((event) {
+      if (!mounted) return;
+
+      if (event.source == PushSource.foreground) {
+        final patientName = _patients
+            .firstWhere(
+              (p) => p.patientId == event.patientId,
+              orElse: () => _selectedPatient ?? _patients.first,
+            )
+            .patient
+            .fullName;
+        final actionText = event.type == 'geofence_exit'
+            ? '$patientName left the safe zone!'
+            : '$patientName needs help (SOS)!';
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: _red,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 8),
+            content: Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    actionText,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            action: SnackBarAction(
+              label: 'Open',
+              textColor: Colors.white,
+              onPressed: () {
+                _selectPatientAndRefresh(event.patientId);
+              },
+            ),
+          ),
+        );
+      } else {
+        _selectPatientAndRefresh(event.patientId);
+      }
+    });
+  }
+
+  void _selectPatientAndRefresh(String patientId) {
+    if (patientId.isNotEmpty && _patients.any((p) => p.patientId == patientId)) {
+      setState(() {
+        _selectedPatient =
+            _patients.firstWhere((p) => p.patientId == patientId);
+      });
+      _loadSelectedPatientDetails(patientId);
+    } else {
+      refreshAlerts(silent: true);
+    }
+  }
+
+  Future<void> refreshAlerts({bool silent = true}) async {
+    if (_isRefreshing || _selectedPatient == null) return;
+    _isRefreshing = true;
+    try {
+      final repo = CaregiverServiceLocator.instance.caregiverRepository;
+      final alerts = await repo.getPatientAlerts(_selectedPatient!.patientId);
+      final status = await repo.getPatientStatus(_selectedPatient!.patientId);
+      if (mounted) {
+        setState(() {
+          _alerts = alerts;
+          _patientStatus = status;
+        });
+      }
+    } catch (e) {
+      if (!silent && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to refresh alerts: $e')),
+        );
+      }
+    } finally {
+      _isRefreshing = false;
+    }
   }
 
   Future<void> _loadData() async {

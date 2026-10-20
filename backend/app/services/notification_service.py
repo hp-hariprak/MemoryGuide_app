@@ -69,6 +69,14 @@ class FirebaseNotificationGateway:
             notification=messaging.Notification(title=title, body=body),
             data=data,
             tokens=tokens,
+            android=messaging.AndroidConfig(
+                priority="high",
+                notification=messaging.AndroidNotification(
+                    channel_id="memoryguide_alerts",
+                    priority="high",
+                    sound="default",
+                ),
+            ),
         )
         response = messaging.send_each_for_multicast(message)
         invalid: list[str] = []
@@ -96,7 +104,13 @@ class NotificationService:
             self.gateway = firebase_gateway if firebase_gateway.configured else DisabledNotificationGateway()
             self.firebase_configured = firebase_gateway.configured
 
-    def notify_help_request(self, alert: SafetyEvent, patient_name: str) -> NotificationSendResult:
+    def _notify_alert(
+        self,
+        alert: SafetyEvent,
+        title: str,
+        body: str,
+        alert_type: str,
+    ) -> NotificationSendResult:
         caregiver_ids = [rel.caregiver_id for rel in self.rels.list_active_caregivers(alert.patient_id)]
         tokens = [device.token for device in self.devices.list_for_users(caregiver_ids)]
         if not self.firebase_configured:
@@ -116,10 +130,10 @@ class NotificationService:
         try:
             delivered, invalid = self.gateway.send_to_tokens(
                 tokens,
-                title="MemoryGuide help request",
-                body=f"{patient_name} requested help",
+                title=title,
+                body=body,
                 data={
-                    "type": "help_request",
+                    "type": alert_type,
                     "alert_id": str(alert.id),
                     "patient_id": str(alert.patient_id),
                 },
@@ -140,6 +154,22 @@ class NotificationService:
                 status="failed",
                 firebase_configured=True,
             )
+
+    def notify_help_request(self, alert: SafetyEvent, patient_name: str) -> NotificationSendResult:
+        return self._notify_alert(
+            alert=alert,
+            title="MemoryGuide help request",
+            body=f"{patient_name} requested help",
+            alert_type="help_request",
+        )
+
+    def notify_geofence_exit(self, alert: SafetyEvent, patient_name: str) -> NotificationSendResult:
+        return self._notify_alert(
+            alert=alert,
+            title="MemoryGuide safe-zone alert",
+            body=f"{patient_name} left the safe zone",
+            alert_type="geofence_exit",
+        )
 
     def _drop_invalid(self, tokens: list[str]) -> None:
         for token in tokens:
