@@ -6,12 +6,13 @@ import '../models/safe_zone_config.dart';
 /// Contract for loading patient safe zone settings.
 abstract class SafeZoneConfigRepository {
   Future<SafeZoneConfig> load();
+  Future<void> save(SafeZoneConfig config);
 }
 
 /// Default repository returning a realistic in-memory demo safe zone
 /// matching the Member 1 UI specifications.
 class MockSafeZoneConfigRepository implements SafeZoneConfigRepository {
-  final SafeZoneConfig config;
+  SafeZoneConfig config;
 
   MockSafeZoneConfigRepository({
     SafeZoneConfig? customConfig,
@@ -29,20 +30,26 @@ class MockSafeZoneConfigRepository implements SafeZoneConfigRepository {
 
   @override
   Future<SafeZoneConfig> load() async => config;
+
+  @override
+  Future<void> save(SafeZoneConfig newConfig) async {
+    config = newConfig;
+  }
 }
 
 /// Remote repository fetching settings from `GET /api/v1/patients/{patient_id}/settings`.
 class ApiSafeZoneConfigRepository implements SafeZoneConfigRepository {
   final ApiClient apiClient;
   final Future<String?> Function() tokenProvider;
-  final String patientId;
+  final String? Function()? patientIdProvider;
+  final String? patientId;
 
   ApiSafeZoneConfigRepository({
     ApiClient? apiClient,
     required this.tokenProvider,
-    String? patientId,
-  })  : apiClient = apiClient ?? ApiClient(),
-        patientId = patientId ?? AppConfig.patientId;
+    this.patientIdProvider,
+    this.patientId,
+  })  : apiClient = apiClient ?? ApiClient();
 
   @override
   Future<SafeZoneConfig> load() async {
@@ -54,9 +61,13 @@ class ApiSafeZoneConfigRepository implements SafeZoneConfigRepository {
       );
     }
 
+    final resolvedId = patientIdProvider?.call() ??
+        patientId ??
+        AppConfig.patientId;
+
     final headers = {'Authorization': 'Bearer $token'};
     final response = await apiClient.get(
-      '/patients/$patientId/settings',
+      '/patients/$resolvedId/settings',
       headers: headers,
     );
 
@@ -65,5 +76,27 @@ class ApiSafeZoneConfigRepository implements SafeZoneConfigRepository {
     }
 
     throw const ServerFailure('Invalid response data received for patient settings');
+  }
+
+  @override
+  Future<void> save(SafeZoneConfig newConfig) async {
+    final token = await tokenProvider();
+    if (token == null || token.isEmpty) return;
+
+    final resolvedId = patientIdProvider?.call() ??
+        patientId ??
+        AppConfig.patientId;
+
+    final headers = {'Authorization': 'Bearer $token'};
+    await apiClient.put(
+      '/patients/$resolvedId/settings',
+      {
+        'safe_zone_enabled': newConfig.enabled,
+        'safe_zone_latitude': newConfig.latitude,
+        'safe_zone_longitude': newConfig.longitude,
+        'safe_zone_radius_meters': newConfig.radiusMeters,
+      },
+      headers: headers,
+    );
   }
 }

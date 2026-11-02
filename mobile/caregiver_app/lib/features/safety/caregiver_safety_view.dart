@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../core/services/caregiver_service_locator.dart';
 import '../../core/services/push_notification_service.dart';
 import '../../data/models/caregiver_models.dart';
+import 'caregiver_patient_tracking_screen.dart';
+import 'interactive_map.dart';
+import 'safe_zone_config_screen.dart';
 
 const _forest = Color(0xFF174D43);
 const _mint = Color(0xFFE7F3EC);
@@ -66,7 +70,7 @@ class _CaregiverSafetySectionState extends State<CaregiverSafetySection>
 
   void _startPolling() {
     _pollingTimer?.cancel();
-    _pollingTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    _pollingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (mounted && _selectedPatient != null) {
         refreshAlerts(silent: true);
       }
@@ -144,10 +148,12 @@ class _CaregiverSafetySectionState extends State<CaregiverSafetySection>
       final repo = CaregiverServiceLocator.instance.caregiverRepository;
       final alerts = await repo.getPatientAlerts(_selectedPatient!.patientId);
       final status = await repo.getPatientStatus(_selectedPatient!.patientId);
+      final settings = await repo.getPatientSettings(_selectedPatient!.patientId);
       if (mounted) {
         setState(() {
           _alerts = alerts;
           _patientStatus = status;
+          _patientSettings = settings;
         });
       }
     } catch (e) {
@@ -354,172 +360,18 @@ class _CaregiverSafetySectionState extends State<CaregiverSafetySection>
   Future<void> _openSafeZoneDialog() async {
     if (_selectedPatient == null || _patientSettings == null) return;
 
-    final latController = TextEditingController(
-      text: _patientSettings!.safeZoneLatitude?.toString() ?? '12.9716',
-    );
-    final lngController = TextEditingController(
-      text: _patientSettings!.safeZoneLongitude?.toString() ?? '77.5946',
-    );
-    double radius = _patientSettings!.safeZoneRadiusMeters.clamp(50.0, 5000.0);
-    bool safeZoneEnabled = _patientSettings!.safeZoneEnabled;
-    bool geofenceAlertsEnabled = _patientSettings!.geofenceAlertsEnabled;
-    bool isSaving = false;
-    String? dialogError;
-
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Row(
-            children: [
-              Icon(Icons.shield_outlined, color: _forest),
-              SizedBox(width: 8),
-              Text('Safe Zone Configuration'),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (dialogError != null) ...[
-                  Text(dialogError!, style: const TextStyle(color: _red)),
-                  const SizedBox(height: 8),
-                ],
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Enable Safe Zone',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  subtitle: const Text('Monitors whether patient stays in zone',
-                      style: TextStyle(fontSize: 12)),
-                  value: safeZoneEnabled,
-                  activeTrackColor: _forest,
-                  onChanged: (val) =>
-                      setDialogState(() => safeZoneEnabled = val),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Geofence Exit Alerts',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  subtitle: const Text('Receive notifications on zone exit',
-                      style: TextStyle(fontSize: 12)),
-                  value: geofenceAlertsEnabled,
-                  activeTrackColor: _forest,
-                  onChanged: (val) =>
-                      setDialogState(() => geofenceAlertsEnabled = val),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: latController,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: InputDecoration(
-                    labelText: 'Safe Zone Center Latitude',
-                    hintText: 'e.g. 12.9716',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: lngController,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: InputDecoration(
-                    labelText: 'Safe Zone Center Longitude',
-                    hintText: 'e.g. 77.5946',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Safe Radius:',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    Text('${radius.toInt()} meters',
-                        style: const TextStyle(
-                            color: _forest, fontWeight: FontWeight.bold)),
-                  ],
-                ),
-                Slider(
-                  value: radius,
-                  min: 50.0,
-                  max: 2000.0,
-                  divisions: 39,
-                  activeColor: _forest,
-                  onChanged: (val) => setDialogState(() => radius = val),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: isSaving ? null : () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _forest,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onPressed: isSaving
-                  ? null
-                  : () async {
-                      final lat = double.tryParse(latController.text.trim());
-                      final lng = double.tryParse(lngController.text.trim());
-                      if (lat == null || lng == null) {
-                        setDialogState(() =>
-                            dialogError = 'Please enter valid numerical coordinates');
-                        return;
-                      }
-
-                      setDialogState(() {
-                        isSaving = true;
-                        dialogError = null;
-                      });
-
-                      try {
-                        await CaregiverServiceLocator
-                            .instance.caregiverRepository
-                            .updatePatientSettings(_selectedPatient!.patientId, {
-                          'safe_zone_enabled': safeZoneEnabled,
-                          'geofence_alerts_enabled': geofenceAlertsEnabled,
-                          'safe_zone_latitude': lat,
-                          'safe_zone_longitude': lng,
-                          'safe_zone_radius_meters': radius,
-                        });
-                        if (!ctx.mounted) return;
-                        Navigator.pop(ctx);
-                        _loadSelectedPatientDetails(
-                            _selectedPatient!.patientId);
-                      } catch (e) {
-                        setDialogState(() {
-                          isSaving = false;
-                          dialogError =
-                              e.toString().replaceFirst('Exception: ', '');
-                        });
-                      }
-                    },
-              child: isSaving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Text('Save Settings'),
-            ),
-          ],
+    final updated = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => SafeZoneConfigScreen(
+          patient: _selectedPatient!,
+          initialSettings: _patientSettings!,
         ),
       ),
     );
+
+    if (updated == true && mounted) {
+      _loadSelectedPatientDetails(_selectedPatient!.patientId);
+    }
   }
 
   Future<void> _openLandmarksDialog() async {
@@ -954,61 +806,144 @@ class _CaregiverSafetySectionState extends State<CaregiverSafetySection>
                   const SizedBox(height: 18),
 
                   // Location details & Geofence Info
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAF7),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: _line),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
+                  Builder(
+                    builder: (context) {
+                      final hasHome = _patientSettings?.safeZoneLatitude != null &&
+                          _patientSettings?.safeZoneLongitude != null;
+                      final hasPatient = _patientStatus?.latitude != null &&
+                          _patientStatus?.longitude != null;
+
+                      double? distanceMeters;
+                      if (hasHome && hasPatient) {
+                        distanceMeters = Geolocator.distanceBetween(
+                          _patientSettings!.safeZoneLatitude!,
+                          _patientSettings!.safeZoneLongitude!,
+                          _patientStatus!.latitude!,
+                          _patientStatus!.longitude!,
+                        );
+                      }
+
+                      final String distanceDisplay;
+                      if (!hasHome) {
+                        distanceDisplay = 'Home location not configured';
+                      } else if (!hasPatient) {
+                        distanceDisplay = 'Waiting for patient GPS';
+                      } else if (distanceMeters != null) {
+                        distanceDisplay = distanceMeters < 1000
+                            ? '${distanceMeters.toStringAsFixed(0)} m'
+                            : '${(distanceMeters / 1000).toStringAsFixed(2)} km';
+                      } else {
+                        distanceDisplay = 'Waiting for patient GPS';
+                      }
+
+                      return Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAF7),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: _line),
+                        ),
+                        child: Column(
                           children: [
-                            const Icon(Icons.my_location_rounded,
-                                size: 18, color: _forest),
-                            const SizedBox(width: 8),
-                            const Text('Current Coordinates: ',
-                                style: TextStyle(
-                                    fontSize: 13, fontWeight: FontWeight.w600)),
-                            Text(
-                              _patientStatus?.latitude != null &&
-                                      _patientStatus?.longitude != null
-                                  ? '${_patientStatus!.latitude!.toStringAsFixed(5)}, ${_patientStatus!.longitude!.toStringAsFixed(5)}'
-                                  : 'No GPS fix yet',
-                              style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.bold,
-                                  color: _ink),
+                            Row(
+                              children: [
+                                const Icon(Icons.my_location_rounded,
+                                    size: 18, color: _forest),
+                                const SizedBox(width: 8),
+                                const Text('Current Coordinates: ',
+                                    style: TextStyle(
+                                        fontSize: 13, fontWeight: FontWeight.w600)),
+                                Text(
+                                  _patientStatus?.latitude != null &&
+                                          _patientStatus?.longitude != null
+                                      ? '${_patientStatus!.latitude!.toStringAsFixed(5)}, ${_patientStatus!.longitude!.toStringAsFixed(5)}'
+                                      : 'No GPS fix yet',
+                                  style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: _ink),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                const Icon(Icons.straighten_rounded,
+                                    size: 18, color: _forest),
+                                const SizedBox(width: 8),
+                                const Text('Distance from Home: ',
+                                    style: TextStyle(
+                                        fontSize: 13, fontWeight: FontWeight.w600)),
+                                Text(
+                                  distanceDisplay,
+                                  style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: _ink),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                const Icon(Icons.radar_rounded,
+                                    size: 18, color: _forest),
+                                const SizedBox(width: 8),
+                                const Text('Safe Zone Boundary: ',
+                                    style: TextStyle(
+                                        fontSize: 13, fontWeight: FontWeight.w600)),
+                                Text(
+                                  _patientSettings?.safeZoneEnabled == true
+                                      ? 'Active · ${_patientSettings!.safeZoneRadiusMeters.toInt()}m radius'
+                                      : 'Not Enabled',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: _patientSettings?.safeZoneEnabled == true
+                                        ? _green
+                                        : _muted,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Icon(Icons.radar_rounded,
-                                size: 18, color: _forest),
-                            const SizedBox(width: 8),
-                            const Text('Safe Zone Boundary: ',
-                                style: TextStyle(
-                                    fontSize: 13, fontWeight: FontWeight.w600)),
-                            Text(
-                              _patientSettings?.safeZoneEnabled == true
-                                  ? 'Active · ${_patientSettings!.safeZoneRadiusMeters.toInt()}m radius'
-                                  : 'Not Enabled',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: _patientSettings?.safeZoneEnabled == true
-                                    ? _green
-                                    : _muted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+                      );
+                    },
                   ),
+
+                  // Embedded Interactive Map Preview
+                  if (_patientSettings?.safeZoneLatitude != null || _patientStatus?.latitude != null) ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      height: 190,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: _line),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: MemoryGuideInteractiveMap(
+                        initialCenter: _patientStatus?.latitude != null
+                            ? MapCoordinate(_patientStatus!.latitude!, _patientStatus!.longitude!)
+                            : MapCoordinate(_patientSettings!.safeZoneLatitude!, _patientSettings!.safeZoneLongitude!),
+                        initialZoom: 15.5,
+                        homeLocation: (_patientSettings?.safeZoneLatitude != null && _patientSettings?.safeZoneLongitude != null)
+                            ? MapCoordinate(_patientSettings!.safeZoneLatitude!, _patientSettings!.safeZoneLongitude!)
+                            : null,
+                        safeZoneRadiusMeters: _patientSettings?.safeZoneRadiusMeters,
+                        patientLocation: (_patientStatus?.latitude != null && _patientStatus?.longitude != null)
+                            ? MapCoordinate(_patientStatus!.latitude!, _patientStatus!.longitude!)
+                            : null,
+                        patientAccuracyMeters: _patientStatus?.accuracyMeters,
+                        visualState: _patientStatus?.insideSafeZone == true
+                            ? GeofenceVisualState.inside
+                            : _patientStatus?.insideSafeZone == false
+                                ? GeofenceVisualState.outside
+                                : GeofenceVisualState.uncertain,
+                        isEditable: false,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
 
                   // Quick Action Buttons
@@ -1017,6 +952,27 @@ class _CaregiverSafetySectionState extends State<CaregiverSafetySection>
                     runSpacing: 8,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _forest,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        icon: const Icon(Icons.map_rounded, size: 18),
+                        label: const Text('Live Tracking Map'),
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => CaregiverPatientTrackingScreen(
+                                patient: _selectedPatient!,
+                                settings: _patientSettings,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                       OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
                           foregroundColor: _forest,
@@ -1220,6 +1176,29 @@ class _CaregiverSafetySectionState extends State<CaregiverSafetySection>
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.end,
                                 children: [
+                                  if (alert.latitude != null && alert.longitude != null) ...[
+                                    TextButton.icon(
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: _forest,
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      ),
+                                      icon: const Icon(Icons.location_searching_rounded, size: 16),
+                                      label: const Text('View on Map', style: TextStyle(fontSize: 12)),
+                                      onPressed: () {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => CaregiverPatientTrackingScreen(
+                                              patient: _selectedPatient!,
+                                              settings: _patientSettings,
+                                              targetLatitude: alert.latitude,
+                                              targetLongitude: alert.longitude,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                    const SizedBox(width: 6),
+                                  ],
                                   if (alert.status == 'open')
                                     OutlinedButton(
                                       style: OutlinedButton.styleFrom(

@@ -1,5 +1,6 @@
 import '../../core/errors/failures.dart';
 import '../../core/network/api_client.dart';
+import '../../core/services/caregiver_service_locator.dart';
 import '../datasources/caregiver_local_datasource.dart';
 import '../models/caregiver_models.dart';
 

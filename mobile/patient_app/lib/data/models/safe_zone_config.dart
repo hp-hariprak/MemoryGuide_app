@@ -28,15 +28,20 @@ class SafeZoneConfig {
   /// Factory constructing [SafeZoneConfig] from the unwrapped backend `data` object
   /// returned by `GET /api/v1/patients/{patient_id}/settings`.
   factory SafeZoneConfig.fromSettingsJson(Map<String, dynamic> data) {
+    final lat = (data['safe_zone_latitude'] as num?)?.toDouble() ?? 11.03000;
+    final lon = (data['safe_zone_longitude'] as num?)?.toDouble() ?? 77.00600;
+    final radius = (data['safe_zone_radius_meters'] as num?)?.toInt() ?? 200;
+    final enabled = data['safe_zone_enabled'] as bool? ?? true;
+
     return SafeZoneConfig(
-      enabled: data['safe_zone_enabled'] as bool? ?? false,
-      latitude: (data['safe_zone_latitude'] as num?)?.toDouble(),
-      longitude: (data['safe_zone_longitude'] as num?)?.toDouble(),
-      radiusMeters: (data['safe_zone_radius_meters'] as num?)?.toInt(),
+      enabled: enabled,
+      latitude: lat,
+      longitude: lon,
+      radiusMeters: radius,
       name: data['name'] as String? ??
           data['safe_zone_name'] as String? ??
           data['zone_name'] as String? ??
-          'Home Zone',
+          'Home Safe Zone',
       locationIntervalSeconds:
           (data['location_interval_seconds'] as num?)?.toInt() ?? 60,
       trackingEnabled: data['tracking_enabled'] as bool? ?? true,

@@ -9,6 +9,7 @@ import '../../core/theme/liquid_glass.dart';
 import '../../core/utils/location_helper.dart';
 import '../../data/models/safe_zone_state.dart';
 import '../help/emergency_sos_button.dart';
+import '../location/live_tracking_view.dart';
 import '../profile/patient_profile_screen.dart';
 import '../safe_zones/safe_zone_banner.dart';
 import 'caregiver_contact_card.dart';
@@ -53,55 +54,25 @@ class _PatientHomeScreenState extends State<PatientHomeScreen> {
     final auth = PatientAppServices.instance.authRepository;
     if (auth.isAuthenticated) {
       _loadStatus();
-      _startPeriodicLocationReporting();
     }
   }
 
   Future<void> _loadStatus() async {
     try {
-      final status = await PatientAppServices.instance.patientRepository.fetchStatus();
+      final status =
+          await PatientAppServices.instance.patientRepository.fetchStatus();
       if (!mounted) return;
-
-      SafeZoneStatus calculatedStatus = SafeZoneStatus.locating;
-      if (status.insideSafeZone == true) {
-        calculatedStatus = SafeZoneStatus.inside;
-      } else if (status.insideSafeZone == false) {
-        calculatedStatus = SafeZoneStatus.outside;
-      }
-
-      setState(() {
-        _currentSafeZoneInfo = SafeZoneInfo(
-          status: calculatedStatus,
-          zoneName: 'Configured Safe Zone',
-          lastUpdated: DateTime.now(),
+      if (status.insideSafeZone != null) {
+        _setStatus(
+          status.insideSafeZone!
+              ? SafeZoneStatus.inside
+              : SafeZoneStatus.outside,
+          status.insideSafeZone! ? 'Safe Zone' : 'Outside Safe Zone',
         );
-      });
+      }
     } catch (_) {
-      // Keep existing status if server unreachable
+      // Keep local status evaluation if server is momentarily unreachable
     }
-  }
-
-  void _startPeriodicLocationReporting() {
-    _locationTimer?.cancel();
-    // Periodically post device GPS location every 60 seconds if authenticated
-    _locationTimer = Timer.periodic(const Duration(seconds: 60), (_) async {
-      final auth = PatientAppServices.instance.authRepository;
-      if (!auth.isAuthenticated || !mounted) return;
-      try {
-        final position = await LocationHelper.getCurrentPosition();
-        if (position != null) {
-          await PatientAppServices.instance.patientRepository.recordLocation(
-            latitude: position.latitude,
-            longitude: position.longitude,
-            accuracyMeters: position.accuracy,
-            altitudeMeters: position.altitude,
-            speedMps: position.speed,
-            headingDegrees: position.heading,
-          );
-          _loadStatus();
-        }
-      } catch (_) {}
-    });
   }
 
   @override
@@ -349,8 +320,49 @@ class _PatientHomeScreenState extends State<PatientHomeScreen> {
                                 ),
                               ),
                             ),
-                        // 2. Safe Zone primary status hero card
-                        SafeZoneBanner(info: _currentSafeZoneInfo),
+                        // 2. Safe Zone primary status hero card with tap-to-track map
+                        InkWell(
+                          borderRadius: BorderRadius.circular(24),
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const LiveTrackingView(),
+                              ),
+                            );
+                          },
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              SafeZoneBanner(info: _currentSafeZoneInfo),
+                              const SizedBox(height: 6),
+                              const Align(
+                                alignment: Alignment.centerRight,
+                                child: Padding(
+                                  padding: EdgeInsets.only(right: 8.0),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.map_outlined,
+                                        size: 13,
+                                        color: PatientAppTheme.primaryBlue,
+                                      ),
+                                      SizedBox(width: 4),
+                                      Text(
+                                        'Tap to view live tracking map',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: PatientAppTheme.primaryBlue,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                         const SizedBox(height: 24),
 
                         // 3. Trusted Support section heading

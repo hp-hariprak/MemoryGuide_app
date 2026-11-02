@@ -124,6 +124,9 @@ class PatientStatus {
   double? get longitude =>
       (latestLocation?['longitude'] as num?)?.toDouble();
 
+  double? get accuracyMeters =>
+      (latestLocation?['accuracy_meters'] as num?)?.toDouble();
+
   DateTime? get recordedAt => latestLocation?['recorded_at'] != null
       ? DateTime.tryParse(latestLocation!['recorded_at'].toString())
       : null;
@@ -160,9 +163,9 @@ class PatientSettings {
           (json['location_interval_seconds'] as num?)?.toInt() ?? 60,
       geofenceAlertsEnabled:
           json['geofence_alerts_enabled'] as bool? ?? true,
-      safeZoneEnabled: json['safe_zone_enabled'] as bool? ?? false,
-      safeZoneLatitude: (json['safe_zone_latitude'] as num?)?.toDouble(),
-      safeZoneLongitude: (json['safe_zone_longitude'] as num?)?.toDouble(),
+      safeZoneEnabled: json['safe_zone_enabled'] as bool? ?? true,
+      safeZoneLatitude: (json['safe_zone_latitude'] as num?)?.toDouble() ?? 11.03000,
+      safeZoneLongitude: (json['safe_zone_longitude'] as num?)?.toDouble() ?? 77.00600,
       safeZoneRadiusMeters:
           (json['safe_zone_radius_meters'] as num?)?.toDouble() ?? 200.0,
       helpAlertCooldownSeconds:

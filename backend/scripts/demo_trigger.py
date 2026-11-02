@@ -30,9 +30,33 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="MemoryGuide Demo Trigger Helper")
     parser.add_argument(
         "--action",
-        choices=["help", "inside", "outside"],
+        choices=["help", "inside", "outside", "custom", "set-zone"],
         required=True,
-        help="Action to trigger: 'help' for SOS request, 'inside' for safe-zone GPS, 'outside' for geofence exit GPS",
+        help="Action: 'help' (SOS), 'inside' (home GPS), 'outside' (breach GPS), 'custom' (arbitrary lat/lon), 'set-zone' (configure safe zone)",
+    )
+    parser.add_argument(
+        "--lat",
+        type=float,
+        default=None,
+        help="Latitude for 'custom' or 'set-zone' action",
+    )
+    parser.add_argument(
+        "--lon",
+        type=float,
+        default=None,
+        help="Longitude for 'custom' or 'set-zone' action",
+    )
+    parser.add_argument(
+        "--radius",
+        type=int,
+        default=150,
+        help="Radius in metres for 'set-zone' action (default: 150)",
+    )
+    parser.add_argument(
+        "--accuracy",
+        type=float,
+        default=5.0,
+        help="GPS accuracy in metres (default: 5.0)",
     )
     parser.add_argument(
         "--base-url",
@@ -131,7 +155,7 @@ def main() -> None:
             json={
                 "latitude": outside_lat,
                 "longitude": outside_lon,
-                "accuracy_meters": 5.0,
+                "accuracy_meters": args.accuracy,
             },
         )
         if res.status_code == 201:
@@ -142,6 +166,60 @@ def main() -> None:
             print("=" * 50 + "\n")
         else:
             print(f"ERROR: Failed to post location: {res.status_code} {res.text}", file=sys.stderr)
+            sys.exit(1)
+
+    elif args.action == "custom":
+        if args.lat is None or args.lon is None:
+            print("ERROR: --lat and --lon are required when using --action custom", file=sys.stderr)
+            sys.exit(1)
+        res = client.post(
+            f"/patients/{user_id}/locations",
+            headers=headers,
+            json={
+                "latitude": args.lat,
+                "longitude": args.lon,
+                "accuracy_meters": args.accuracy,
+            },
+        )
+        if res.status_code == 201:
+            print("\n" + "=" * 50)
+            print(" SUCCESS: Custom Location Coordinates Posted!")
+            print(f" Coordinates: ({args.lat}, {args.lon}) with accuracy ±{args.accuracy}m")
+            # Fetch status
+            status_res = client.get(f"/patients/{user_id}/status", headers=headers)
+            if status_res.status_code == 200:
+                s = status_res.json().get("data", {})
+                inside = s.get("inside_safe_zone")
+                print(f" Geofence Status: {'INSIDE Safe Zone' if inside is True else 'OUTSIDE Safe Zone' if inside is False else 'UNCERTAIN'}")
+                print(f" Open Alert Count: {s.get('open_alert_count')}")
+            print("=" * 50 + "\n")
+        else:
+            print(f"ERROR: Failed to post custom coordinates: {res.status_code} {res.text}", file=sys.stderr)
+            sys.exit(1)
+
+    elif args.action == "set-zone":
+        target_lat = args.lat if args.lat is not None else safe_lat
+        target_lon = args.lon if args.lon is not None else safe_lon
+        res = client.put(
+            f"/patients/{user_id}/settings",
+            headers=headers,
+            json={
+                "safe_zone_enabled": True,
+                "safe_zone_latitude": target_lat,
+                "safe_zone_longitude": target_lon,
+                "safe_zone_radius_meters": args.radius,
+                "geofence_alerts_enabled": True,
+                "tracking_enabled": True,
+            },
+        )
+        if res.status_code == 200:
+            print("\n" + "=" * 50)
+            print(" SUCCESS: Patient Safe-Zone Perimeter Updated!")
+            print(f" Home Center: ({target_lat}, {target_lon})")
+            print(f" Radius:      {args.radius} metres")
+            print("=" * 50 + "\n")
+        else:
+            print(f"ERROR: Failed to update safe zone: {res.status_code} {res.text}", file=sys.stderr)
             sys.exit(1)
 
 

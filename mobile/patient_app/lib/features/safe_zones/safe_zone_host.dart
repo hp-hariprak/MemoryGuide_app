@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../../core/services/service_locator.dart';
 import '../../data/datasources/location_datasource.dart';
 import '../../data/models/safe_zone_config.dart';
 import '../../data/models/safe_zone_state.dart';
@@ -37,15 +39,19 @@ class _SafeZoneHostState extends State<SafeZoneHost> {
   late final LocationSource _source;
   late final SafeZoneConfigRepository _configRepo;
   late final SafeZoneMonitor _monitor;
+  Timer? _configRefreshTimer;
   SafeZoneConfig? _config;
 
   @override
   void initState() {
     super.initState();
     _source = widget.locationSource ?? LocationDataSource().activeSource;
-    _configRepo = widget.configRepository ?? MockSafeZoneConfigRepository();
+    _configRepo = widget.configRepository ??
+        (PatientAppServices.instance.authRepository.isAuthenticated
+            ? PatientAppServices.instance.safeZoneConfigRepository
+            : MockSafeZoneConfigRepository());
 
-    // Default demo zone if repo is loading or async
+    // Default zone fallback while repo is loading
     _config = const SafeZoneConfig(
       enabled: true,
       latitude: 12.9716,
@@ -57,28 +63,42 @@ class _SafeZoneHostState extends State<SafeZoneHost> {
       geofenceAlertsEnabled: true,
     );
 
-    _configRepo.load().then((loadedConfig) {
-      if (mounted) {
-        setState(() {
-          _config = loadedConfig;
-        });
-      }
-    }).catchError((_) {
-      // Retain fallback demo zone if fetch fails
-    });
+    _reloadConfig();
 
     _monitor = SafeZoneMonitor(
       locationSource: _source,
       configProvider: () => _config,
       evaluator: widget.evaluator ?? const GeofenceEvaluator(),
-      uploader: widget.uploader ?? const NoopLocationUploader(),
+      uploader: widget.uploader ??
+          (PatientAppServices.instance.authRepository.isAuthenticated
+              ? PatientAppServices.instance.locationUploader
+              : const NoopLocationUploader()),
     );
 
     _monitor.start();
+
+    // Periodically re-sync settings from backend so doctor's safe zone changes take effect live
+    _configRefreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _reloadConfig();
+    });
+  }
+
+  Future<void> _reloadConfig() async {
+    try {
+      final loadedConfig = await _configRepo.load();
+      if (mounted) {
+        setState(() {
+          _config = loadedConfig;
+        });
+      }
+    } catch (_) {
+      // Retain fallback zone if fetch fails
+    }
   }
 
   @override
   void dispose() {
+    _configRefreshTimer?.cancel();
     _monitor.dispose();
     super.dispose();
   }

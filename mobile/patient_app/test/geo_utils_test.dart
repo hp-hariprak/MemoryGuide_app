@@ -1,7 +1,96 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:patient_app/core/utils/geo_utils.dart';
+import 'package:patient_app/data/models/location_fix.dart';
 
 void main() {
+  group('LocationFix Validation & Staleness Tests', () {
+    final now = DateTime.utc(2026, 11, 2, 12, 0, 0);
+
+    test('Valid LocationFix passes isValid', () {
+      final fix = LocationFix(
+        latitude: 12.9716,
+        longitude: 77.5946,
+        accuracyMeters: 8.5,
+        timestamp: now,
+      );
+      expect(fix.isValid, isTrue);
+    });
+
+    test('Invalid latitude is rejected by isValid', () {
+      final fixOver = LocationFix(
+        latitude: 91.0,
+        longitude: 77.5946,
+        timestamp: now,
+      );
+      final fixUnder = LocationFix(
+        latitude: -90.5,
+        longitude: 77.5946,
+        timestamp: now,
+      );
+      final fixNan = LocationFix(
+        latitude: double.nan,
+        longitude: 77.5946,
+        timestamp: now,
+      );
+      expect(fixOver.isValid, isFalse);
+      expect(fixUnder.isValid, isFalse);
+      expect(fixNan.isValid, isFalse);
+    });
+
+    test('Invalid longitude is rejected by isValid', () {
+      final fixOver = LocationFix(
+        latitude: 12.0,
+        longitude: 180.1,
+        timestamp: now,
+      );
+      final fixUnder = LocationFix(
+        latitude: 12.0,
+        longitude: -180.5,
+        timestamp: now,
+      );
+      final fixNan = LocationFix(
+        latitude: 12.0,
+        longitude: double.nan,
+        timestamp: now,
+      );
+      expect(fixOver.isValid, isFalse);
+      expect(fixUnder.isValid, isFalse);
+      expect(fixNan.isValid, isFalse);
+    });
+
+    test('Negative or NaN accuracy is rejected by isValid', () {
+      final fixNeg = LocationFix(
+        latitude: 12.0,
+        longitude: 77.0,
+        accuracyMeters: -5.0,
+        timestamp: now,
+      );
+      final fixNan = LocationFix(
+        latitude: 12.0,
+        longitude: 77.0,
+        accuracyMeters: double.nan,
+        timestamp: now,
+      );
+      expect(fixNeg.isValid, isFalse);
+      expect(fixNan.isValid, isFalse);
+    });
+
+    test('Stale detection marks old fixes as stale', () {
+      final freshFix = LocationFix(
+        latitude: 12.0,
+        longitude: 77.0,
+        timestamp: now.subtract(const Duration(seconds: 15)),
+      );
+      final staleFix = LocationFix(
+        latitude: 12.0,
+        longitude: 77.0,
+        timestamp: now.subtract(const Duration(minutes: 5)),
+      );
+
+      expect(freshFix.isStale(const Duration(minutes: 2), now), isFalse);
+      expect(staleFix.isStale(const Duration(minutes: 2), now), isTrue);
+    });
+  });
   group('GeoUtils haversineMeters Tests', () {
     const centerLat = 12.9716;
     const centerLon = 77.5946;

@@ -26,11 +26,15 @@ class SafeZoneInfo {
   /// Defaults to [defaultStaleThreshold] (5 minutes) if null.
   final Duration? staleThreshold;
 
+  /// Optional time provider for testing and custom clocks.
+  final DateTime Function()? nowProvider;
+
   const SafeZoneInfo({
     required this.status,
     this.zoneName,
     this.lastUpdated,
     this.staleThreshold,
+    this.nowProvider,
   });
 
   /// Default threshold after which a location fix is considered stale.
@@ -42,7 +46,8 @@ class SafeZoneInfo {
     if (status == SafeZoneStatus.stale) return true;
     if (lastUpdated == null) return false;
     final threshold = staleThreshold ?? defaultStaleThreshold;
-    return DateTime.now().difference(lastUpdated!) > threshold;
+    final current = nowProvider != null ? nowProvider!() : DateTime.now();
+    return current.difference(lastUpdated!) > threshold;
   }
 
   /// Evaluated effective status taking staleness into account.

@@ -37,7 +37,7 @@ class _PatientAppState extends State<PatientApp> {
                     return const Scaffold(
                       backgroundColor: Colors.white,
                       body: Center(
-                        child: CircularProgressIndicator(color: PatientAppTheme.primary),
+                        child: CircularProgressIndicator(color: PatientAppTheme.primaryBlue),
                       ),
                     );
                   }

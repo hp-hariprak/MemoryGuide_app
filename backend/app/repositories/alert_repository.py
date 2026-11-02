@@ -38,6 +38,18 @@ class AlertRepository:
         )
         return self.db.scalar(stmt)
 
+    def latest_of_type(self, patient_id: UUID, alert_type: AlertType) -> SafetyEvent | None:
+        stmt = (
+            select(SafetyEvent)
+            .where(
+                SafetyEvent.patient_id == patient_id,
+                SafetyEvent.alert_type == alert_type,
+            )
+            .order_by(SafetyEvent.created_at.desc())
+            .limit(1)
+        )
+        return self.db.scalar(stmt)
+
     def recent_help_request(self, patient_id: UUID, since: datetime) -> SafetyEvent | None:
         stmt = (
             select(SafetyEvent)

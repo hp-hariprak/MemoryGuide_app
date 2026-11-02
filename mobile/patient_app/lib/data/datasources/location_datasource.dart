@@ -174,11 +174,7 @@ class GeolocatorLocationSource implements LocationSource {
     _positionSubscription = Geolocator.getPositionStream(
       locationSettings: locationSettings,
     ).listen(
-      (position) {
-        if (!_controller.isClosed) {
-          _controller.add(LocationFix.fromPosition(position));
-        }
-      },
+      _processAndEmitPosition,
       onError: (error) {
         if (!_controller.isClosed) {
           _controller.addError(error);
@@ -195,9 +191,7 @@ class GeolocatorLocationSource implements LocationSource {
           final pos = await Geolocator.getCurrentPosition(
             desiredAccuracy: LocationAccuracy.high,
           );
-          if (!_controller.isClosed) {
-            _controller.add(LocationFix.fromPosition(pos));
-          }
+          _processAndEmitPosition(pos);
         } catch (e) {
           if (!_controller.isClosed) {
             _controller.addError(e);
@@ -205,6 +199,23 @@ class GeolocatorLocationSource implements LocationSource {
         }
       },
     );
+  }
+
+  void _processAndEmitPosition(Position position) {
+    if (_controller.isClosed) return;
+    final fix = LocationFix.fromPosition(position);
+
+    // Validate physical bounds and impossible coordinates
+    if (!fix.isValid) {
+      return;
+    }
+
+    // Reject stale cached hardware fixes older than 2 minutes
+    if (fix.isStale(const Duration(minutes: 2))) {
+      return;
+    }
+
+    _controller.add(fix);
   }
 
   @override
@@ -222,9 +233,9 @@ class GeolocatorLocationSource implements LocationSource {
   }
 }
 
-/// Compile-time flag controlling default location provider (true by default).
+/// Compile-time flag controlling default location provider (false by default for production GPS).
 const bool useMockLocation =
-    bool.fromEnvironment('USE_MOCK_LOCATION', defaultValue: true);
+    bool.fromEnvironment('USE_MOCK_LOCATION', defaultValue: false);
 
 /// Data source managing the active [LocationSource].
 class LocationDataSource {

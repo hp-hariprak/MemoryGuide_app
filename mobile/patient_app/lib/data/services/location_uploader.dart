@@ -23,16 +23,17 @@ class NoopLocationUploader implements LocationUploader {
 class ApiLocationUploader implements LocationUploader {
   final ApiClient apiClient;
   final Future<String?> Function() tokenProvider;
-  final String patientId;
+  final String? Function()? patientIdProvider;
+  final String? patientId;
   final double maxAcceptableAccuracyMeters;
 
   ApiLocationUploader({
     ApiClient? apiClient,
     required this.tokenProvider,
-    String? patientId,
+    this.patientIdProvider,
+    this.patientId,
     this.maxAcceptableAccuracyMeters = GeofenceEvaluator.defaultMaxAcceptableAccuracyMeters,
-  })  : apiClient = apiClient ?? ApiClient(),
-        patientId = patientId ?? AppConfig.patientId;
+  })  : apiClient = apiClient ?? ApiClient();
 
   @override
   Future<void> upload(LocationFix fix) async {
@@ -50,9 +51,18 @@ class ApiLocationUploader implements LocationUploader {
         return;
       }
 
+      final resolvedPatientId = patientIdProvider?.call() ??
+          patientId ??
+          AppConfig.patientId;
+
+      if (resolvedPatientId.isEmpty) {
+        debugPrint('[ApiLocationUploader] No patientId available; skipping upload.');
+        return;
+      }
+
       final headers = {'Authorization': 'Bearer $token'};
       await apiClient.post(
-        '/patients/$patientId/locations',
+        '/patients/$resolvedPatientId/locations',
         fix.toApiJson(),
         headers: headers,
       );

@@ -40,11 +40,12 @@ class SafeZoneMonitor extends ChangeNotifier
     this.stalenessCheckInterval = const Duration(seconds: 15),
     this.uploader,
   })  : now = now ?? DateTime.now,
-        _value = const SafeZoneInfo(
+        _value = SafeZoneInfo(
           status: SafeZoneStatus.locating,
           zoneName: null,
           lastUpdated: null,
-          staleThreshold: SafeZoneInfo.defaultStaleThreshold,
+          staleThreshold: staleAfter,
+          nowProvider: now ?? DateTime.now,
         );
 
   @override
@@ -91,20 +92,26 @@ class SafeZoneMonitor extends ChangeNotifier
   }
 
   void _handleLocationFix(LocationFix fix) {
+    if (!fix.isValid) return;
+
     final config = configProvider();
     final result = evaluator.evaluateFix(config: config, fix: fix);
+
+    if (result.decision != GeofenceDecision.invalidFix) {
+      uploader?.upload(fix);
+    }
 
     switch (result.decision) {
       case GeofenceDecision.noZone:
         _consecutiveOutsideCount = 0;
         _lastConfirmedStatus = null;
-        // TODO: SafeZoneStatus lacks a dedicated 'noZone' enum value.
-        // Temporarily mapping to unavailable with null zoneName as agreed with Member 1.
+        // SafeZoneStatus maps to unavailable with null zoneName when no zone configured
         _updateValue(SafeZoneInfo(
           status: SafeZoneStatus.unavailable,
           zoneName: null,
           lastUpdated: now(),
           staleThreshold: staleAfter,
+          nowProvider: now,
         ));
         break;
 
@@ -120,8 +127,8 @@ class SafeZoneMonitor extends ChangeNotifier
           zoneName: config?.name,
           lastUpdated: fix.timestamp,
           staleThreshold: staleAfter,
+          nowProvider: now,
         ));
-        uploader?.upload(fix);
         break;
 
       case GeofenceDecision.outside:
@@ -133,9 +140,9 @@ class SafeZoneMonitor extends ChangeNotifier
             zoneName: config?.name,
             lastUpdated: fix.timestamp,
             staleThreshold: staleAfter,
+            nowProvider: now,
           ));
         }
-        uploader?.upload(fix);
         break;
 
       case GeofenceDecision.uncertain:
@@ -146,6 +153,7 @@ class SafeZoneMonitor extends ChangeNotifier
             zoneName: config?.name,
             lastUpdated: _value.lastUpdated,
             staleThreshold: staleAfter,
+            nowProvider: now,
           ));
         } else {
           // Keep last confirmed status without updating lastUpdated timestamp
@@ -154,6 +162,7 @@ class SafeZoneMonitor extends ChangeNotifier
             zoneName: config?.name,
             lastUpdated: _value.lastUpdated,
             staleThreshold: staleAfter,
+            nowProvider: now,
           ));
         }
         break;
@@ -170,6 +179,7 @@ class SafeZoneMonitor extends ChangeNotifier
         zoneName: null,
         lastUpdated: now(),
         staleThreshold: staleAfter,
+        nowProvider: now,
       ));
     } else {
       _updateValue(SafeZoneInfo(
@@ -177,6 +187,7 @@ class SafeZoneMonitor extends ChangeNotifier
         zoneName: null,
         lastUpdated: now(),
         staleThreshold: staleAfter,
+        nowProvider: now,
       ));
     }
   }
@@ -192,6 +203,7 @@ class SafeZoneMonitor extends ChangeNotifier
             zoneName: _value.zoneName,
             lastUpdated: _value.lastUpdated,
             staleThreshold: staleAfter,
+            nowProvider: now,
           ));
         }
       }

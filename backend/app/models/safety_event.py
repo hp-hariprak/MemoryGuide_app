@@ -9,6 +9,7 @@ from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, String, Text, U
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.utils.time import utcnow
 
 if TYPE_CHECKING:
     from app.models.user import User
@@ -66,10 +67,10 @@ class SafetyEvent(Base):
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     notification_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
+        DateTime(timezone=True), nullable=False, default=utcnow, server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), nullable=False, default=utcnow, server_default=func.now(), onupdate=utcnow
     )
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

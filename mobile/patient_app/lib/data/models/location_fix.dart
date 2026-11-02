@@ -20,6 +20,27 @@ class LocationFix {
     this.headingDegrees,
   });
 
+  /// Validates whether the coordinates and metrics represent a physically possible fix.
+  bool get isValid {
+    if (latitude.isNaN || latitude.isInfinite || latitude < -90.0 || latitude > 90.0) {
+      return false;
+    }
+    if (longitude.isNaN || longitude.isInfinite || longitude < -180.0 || longitude > 180.0) {
+      return false;
+    }
+    if (accuracyMeters != null &&
+        (accuracyMeters!.isNaN || accuracyMeters!.isInfinite || accuracyMeters! < 0.0)) {
+      return false;
+    }
+    return true;
+  }
+
+  /// Determines whether this fix is older than the provided [threshold].
+  bool isStale(Duration threshold, [DateTime? referenceTime]) {
+    final now = (referenceTime ?? DateTime.now()).toUtc();
+    return now.difference(timestamp.toUtc()).abs() > threshold;
+  }
+
   /// Factory converting a geolocator [Position] into a sanitized [LocationFix].
   ///
   /// Negative, infinite, or NaN accuracies and metrics are sanitized to null.

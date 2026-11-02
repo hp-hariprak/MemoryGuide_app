@@ -20,7 +20,7 @@ from app.schemas.location import (
     LocationData,
     PatientStatusData,
 )
-from app.services.geofence_service import GeofenceService
+from app.services.geofence_service import GeofenceDecision, GeofenceService
 from app.services.notification_service import NotificationService
 from app.utils.time import ensure_utc, utcnow
 
@@ -50,7 +50,12 @@ class LocationService:
             recorded_at=recorded_at,
         )
         self.locations.add(location)
-        created_exit_alert = self._maybe_geofence_alert(patient_id, payload.latitude, payload.longitude)
+        created_exit_alert = self._maybe_geofence_alert(
+            patient_id,
+            payload.latitude,
+            payload.longitude,
+            payload.accuracy_meters,
+        )
         self.db.commit()
         self.db.refresh(location)
 
@@ -81,7 +86,12 @@ class LocationService:
                 accuracy_meters=latest.accuracy_meters,
                 recorded_at=latest.recorded_at,
             )
-            inside = GeofenceService.inside_safe_zone(settings, latest.latitude, latest.longitude)
+            inside = GeofenceService.inside_safe_zone(
+                settings,
+                latest.latitude,
+                latest.longitude,
+                latest.accuracy_meters,
+            )
         return PatientStatusData(
             patient_id=patient_id,
             tracking_enabled=bool(settings.tracking_enabled) if settings else True,
@@ -119,30 +129,82 @@ class LocationService:
             ),
         )
 
-    def _maybe_geofence_alert(self, patient_id: UUID, latitude: float, longitude: float) -> SafetyEvent | None:
+    def _maybe_geofence_alert(
+        self,
+        patient_id: UUID,
+        latitude: float,
+        longitude: float,
+        accuracy_meters: float | None = None,
+    ) -> SafetyEvent | None:
         settings = self.settings.get(patient_id)
-        if settings is None or not settings.geofence_alerts_enabled:
+        if settings is None or not settings.geofence_alerts_enabled or not settings.safe_zone_enabled:
             return None
-        inside = GeofenceService.inside_safe_zone(settings, latitude, longitude)
-        if inside is None:
+
+        evaluation = GeofenceService.evaluate(settings, latitude, longitude, accuracy_meters)
+        if evaluation.decision == GeofenceDecision.UNCERTAIN:
+            # Uncertain fixes must never trigger exit or enter transitions
             return None
-        alert_type = AlertType.GEOFENCE_ENTER if inside else AlertType.GEOFENCE_EXIT
-        existing = self.alerts.latest_open_of_type(patient_id, alert_type)
-        if existing is not None:
+
+        if evaluation.decision == GeofenceDecision.INSIDE:
+            # Patient is confirmed inside.
+            # Resolve any open exit alerts.
+            open_exit = self.alerts.latest_open_of_type(patient_id, AlertType.GEOFENCE_EXIT)
+            if open_exit is not None:
+                open_exit.status = AlertStatus.RESOLVED
+                open_exit.resolved_at = utcnow()
+
+            # Record an open enter event if none is currently open
+            open_enter = self.alerts.latest_open_of_type(patient_id, AlertType.GEOFENCE_ENTER)
+            if open_enter is None:
+                enter_event = SafetyEvent(
+                    patient_id=patient_id,
+                    alert_type=AlertType.GEOFENCE_ENTER,
+                    status=AlertStatus.OPEN,
+                    latitude=latitude,
+                    longitude=longitude,
+                    notification_status="skipped",
+                    message="Patient returned to safe zone",
+                    created_at=utcnow(),
+                )
+                self.alerts.add(enter_event)
             return None
-        opposite = AlertType.GEOFENCE_EXIT if inside else AlertType.GEOFENCE_ENTER
-        open_opposite = self.alerts.latest_open_of_type(patient_id, opposite)
-        if open_opposite is not None:
-            open_opposite.status = AlertStatus.RESOLVED
-            open_opposite.resolved_at = utcnow()
-        event = SafetyEvent(
-            patient_id=patient_id,
-            alert_type=alert_type,
-            status=AlertStatus.OPEN,
-            latitude=latitude,
-            longitude=longitude,
-            notification_status="pending" if alert_type == AlertType.GEOFENCE_EXIT else "skipped",
-            message="Patient entered the safe zone" if inside else "Patient left the safe zone",
-        )
-        self.alerts.add(event)
-        return event if alert_type == AlertType.GEOFENCE_EXIT else None
+
+        if evaluation.decision == GeofenceDecision.OUTSIDE:
+            # 1. Do not create another exit alert if an open one already exists
+            existing_open = self.alerts.latest_open_of_type(patient_id, AlertType.GEOFENCE_EXIT)
+            if existing_open is not None:
+                return None
+
+            # 2. Prevent repeated alerts: check if patient has returned inside since last exit
+            latest_exit = self.alerts.latest_of_type(patient_id, AlertType.GEOFENCE_EXIT)
+            if latest_exit is not None:
+                if latest_exit.status != AlertStatus.RESOLVED:
+                    return None
+                latest_enter = self.alerts.latest_of_type(patient_id, AlertType.GEOFENCE_ENTER)
+                # If there has been no enter event after the last exit, do not generate a duplicate alert
+                if latest_enter is None or latest_enter.created_at < latest_exit.created_at:
+                    return None
+
+            # Resolve any open enter event
+            open_enter = self.alerts.latest_open_of_type(patient_id, AlertType.GEOFENCE_ENTER)
+            if open_enter is not None:
+                open_enter.status = AlertStatus.RESOLVED
+                open_enter.resolved_at = utcnow()
+
+            dist_str = f"{evaluation.distance_meters:.0f}m" if evaluation.distance_meters is not None else "unknown"
+            radius_str = f"{settings.safe_zone_radius_meters}m"
+            acc_str = f" (±{accuracy_meters:.0f}m)" if accuracy_meters is not None else ""
+            event = SafetyEvent(
+                patient_id=patient_id,
+                alert_type=AlertType.GEOFENCE_EXIT,
+                status=AlertStatus.OPEN,
+                latitude=latitude,
+                longitude=longitude,
+                notification_status="pending",
+                message=f"Warning: Patient has exited the configured safe zone ({dist_str} from center, radius {radius_str}{acc_str})",
+                created_at=utcnow(),
+            )
+            self.alerts.add(event)
+            return event
+
+        return None
